@@ -191,15 +191,24 @@ class TurboDiffusionI2VSampler:
         tokenizer.model.model.to(device)
 
         with torch.no_grad():
+            # Create zeros on CPU first to save GPU memory, then move
+            print(f"Creating frame tensor (1 real frame + {num_frames-1} zero frames)...")
+            zeros_cpu = torch.zeros(1, 3, num_frames - 1, h, w, dtype=torch.float32)
             frames_to_encode = torch.cat([
                 image_tensor.unsqueeze(2),
-                torch.zeros(1, 3, num_frames - 1, h, w, device=device)
+                zeros_cpu.to(device)
             ], dim=2)  # B, C, T, H, W
+
+            # Free CPU tensor
+            del zeros_cpu
+
+            print(f"Encoding {num_frames} frames at {w}x{h} resolution...")
             encoded_latents = tokenizer.encode(frames_to_encode)
 
         # Clear intermediate tensors
         del image_tensor
         del frames_to_encode
+        torch.cuda.empty_cache()
 
         # Move encoded latents to target dtype and device before offloading VAE
         encoded_latents = encoded_latents.to(device=device, dtype=dtype)
