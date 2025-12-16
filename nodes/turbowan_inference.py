@@ -188,7 +188,7 @@ class TurboDiffusionI2VSampler:
         print("Encoding image with VAE...")
         # Move VAE to GPU for encoding
         print("Loading VAE to GPU...")
-        tokenizer.model.to(device)
+        tokenizer.model.model.to(device)
 
         with torch.no_grad():
             frames_to_encode = torch.cat([
@@ -197,9 +197,16 @@ class TurboDiffusionI2VSampler:
             ], dim=2)  # B, C, T, H, W
             encoded_latents = tokenizer.encode(frames_to_encode)
 
+        # Clear intermediate tensors
+        del image_tensor
+        del frames_to_encode
+
+        # Move encoded latents to target dtype and device before offloading VAE
+        encoded_latents = encoded_latents.to(device=device, dtype=dtype)
+
         # Offload VAE from GPU
         print("Offloading VAE from GPU...")
-        tokenizer.model.to("cpu")
+        tokenizer.model.model.to("cpu")
         torch.cuda.empty_cache()
 
         # 5. Prepare conditioning
@@ -207,7 +214,12 @@ class TurboDiffusionI2VSampler:
         msk = torch.zeros(1, 4, lat_t, lat_h, lat_w, device=device, dtype=dtype)
         msk[:, :, 0, :, :] = 1.0
 
-        y = torch.cat([msk, encoded_latents.to(device=device, dtype=dtype)], dim=1)
+        y = torch.cat([msk, encoded_latents], dim=1)
+
+        # Clear intermediate tensors
+        del msk
+        del encoded_latents
+        torch.cuda.empty_cache()
 
         condition = {
             "crossattn_emb": text_emb,
@@ -233,6 +245,11 @@ class TurboDiffusionI2VSampler:
         # Calculate boundary step
         boundary_step = int(num_steps * boundary)
         print(f"Boundary at step {boundary_step}/{num_steps}")
+
+        # Aggressive memory cleanup before loading models
+        torch.cuda.empty_cache()
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
 
         # Move high noise model to device
         print("Loading high noise model...")
@@ -292,14 +309,14 @@ class TurboDiffusionI2VSampler:
         print("Decoding latents with VAE...")
         # Move VAE to GPU for decoding
         print("Loading VAE to GPU...")
-        tokenizer.model.to(device)
+        tokenizer.model.model.to(device)
 
         with torch.no_grad():
             decoded_frames = tokenizer.decode(x)  # B, C, T, H, W
 
         # Offload VAE from GPU
         print("Offloading VAE from GPU...")
-        tokenizer.model.to("cpu")
+        tokenizer.model.model.to("cpu")
         torch.cuda.empty_cache()
 
         # 9. Convert to ComfyUI IMAGE format (B*T, H, W, C)
