@@ -11,8 +11,23 @@ import folder_paths
 import comfy.sd
 import comfy.model_management
 
-# Import TurboDiffusion's official model loading
-from turbodiffusion.inference.modify_model import create_model, select_model
+# Try to import TurboDiffusion's official model loading
+try:
+    from turbodiffusion.inference.modify_model import create_model, select_model, replace_attention, replace_linear_norm
+    TURBODIFFUSION_AVAILABLE = True
+except ImportError:
+    TURBODIFFUSION_AVAILABLE = False
+    print("\n" + "="*60)
+    print("WARNING: TurboDiffusion not found!")
+    print("="*60)
+    print("TurboWanModelLoader requires TurboDiffusion to be installed.")
+    print("\nTo install TurboDiffusion:")
+    print("  1. Open a terminal/command prompt")
+    print("  2. Activate ComfyUI's Python environment")
+    print("  3. Run: pip install git+https://github.com/thu-ml/TurboDiffusion.git")
+    print("\nOR install in ComfyUI's portable python:")
+    print("  python_embeded\\python.exe -m pip install git+https://github.com/thu-ml/TurboDiffusion.git")
+    print("="*60 + "\n")
 
 
 class TurboWanModelLoader:
@@ -69,6 +84,21 @@ class TurboWanModelLoader:
         Returns:
             Tuple containing the loaded model (ComfyUI MODEL format)
         """
+        if not TURBODIFFUSION_AVAILABLE:
+            raise RuntimeError(
+                "TurboDiffusion is not installed!\n\n"
+                "TurboWanModelLoader requires TurboDiffusion to load quantized models.\n\n"
+                "To install TurboDiffusion in ComfyUI's Python environment:\n"
+                "  1. Open a terminal/command prompt\n"
+                "  2. Navigate to your ComfyUI directory\n"
+                "  3. Run one of these commands:\n\n"
+                "     For portable ComfyUI:\n"
+                "     python_embeded\\python.exe -m pip install git+https://github.com/thu-ml/TurboDiffusion.git\n\n"
+                "     For standard Python:\n"
+                "     pip install git+https://github.com/thu-ml/TurboDiffusion.git\n\n"
+                "  4. Restart ComfyUI\n"
+            )
+
         model_path = folder_paths.get_full_path_or_raise("diffusion_models", model_name)
 
         print(f"\n{'='*60}")
