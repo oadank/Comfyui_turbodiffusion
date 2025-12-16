@@ -49,8 +49,8 @@ class TurboWanModelLoader:
             },
             "optional": {
                 "attention_type": (["original", "sla", "sagesla"], {
-                    "default": "original",
-                    "tooltip": "Attention mechanism (original=standard, sla=sparse, sagesla=requires SpargeAttn)"
+                    "default": "sla",
+                    "tooltip": "Attention mechanism (original=standard, sla=sparse linear attention, sagesla=requires SpargeAttn package)"
                 }),
                 "sla_topk": ("FLOAT", {
                     "default": 0.1,
@@ -67,7 +67,7 @@ class TurboWanModelLoader:
     CATEGORY = "loaders"
     DESCRIPTION = "Load TurboDiffusion quantized models using official inference code"
 
-    def load_model(self, model_name, attention_type="original", sla_topk=0.1):
+    def load_model(self, model_name, attention_type="sla", sla_topk=0.1):
         """
         Load a TurboDiffusion quantized model using official create_model().
 
@@ -121,17 +121,27 @@ class TurboWanModelLoader:
             with torch.device("meta"):
                 model_arch = select_model(args.model)
 
+            # Apply attention modifications BEFORE loading state dict
+            # This ensures the model architecture has the expected SLA layers
+            if args.attention_type in ['sla', 'sagesla']:
+                print(f"Applying {args.attention_type} attention with topk={args.sla_topk}...")
+                model_arch = replace_attention(model_arch, attention_type=args.attention_type, sla_topk=args.sla_topk)
+
             # Load state dict
             print("Loading state dict...")
             state_dict = torch.load(model_path, map_location="cpu", weights_only=False)
 
-            # Apply attention modifications if needed
-            if args.attention_type in ['sla', 'sagesla']:
-                from turbodiffusion.inference.modify_model import replace_attention
-                model_arch = replace_attention(model_arch, attention_type=args.attention_type, sla_topk=args.sla_topk)
+            # Clean checkpoint wrapper keys if present
+            # PyTorch's gradient checkpointing adds "_checkpoint_wrapped_module." prefix
+            cleaned_state_dict = {}
+            for key, value in state_dict.items():
+                clean_key = key.replace("_checkpoint_wrapped_module.", "")
+                cleaned_state_dict[clean_key] = value
+            state_dict = cleaned_state_dict
+            print(f"Cleaned {len(state_dict)} state dict keys")
 
             # Apply quantization-aware layer replacements
-            from turbodiffusion.inference.modify_model import replace_linear_norm
+            print(f"Applying quantization-aware replacements (quant_linear={args.quant_linear}, fast_norm={not args.default_norm})...")
             replace_linear_norm(model_arch, replace_linear=args.quant_linear, replace_norm=not args.default_norm, quantize=False)
 
             # Load weights
@@ -150,31 +160,9 @@ class TurboWanModelLoader:
             print(f"Quantized: {args.quant_linear}")
             print(f"{'='*60}\n")
 
-            # Wrap with ComfyUI's ModelPatcher for automatic memory management
-            # This enables automatic model offloading/loading as needed
-            try:
-                # Get load and offload devices from ComfyUI's model management
-                load_device = comfy.model_management.get_torch_device()
-                offload_device = comfy.model_management.unet_offload_device()
-
-                # Create ModelPatcher to enable ComfyUI's memory management
-                # This will automatically offload the model when not in use
-                model_patcher = comfy.model_patcher.ModelPatcher(
-                    model=model,
-                    load_device=load_device,
-                    offload_device=offload_device
-                )
-
-                print(f"Wrapped model with ComfyUI ModelPatcher")
-                print(f"Load device: {load_device}, Offload device: {offload_device}")
-                print("Model will be automatically managed (load/offload) by ComfyUI")
-
-                return (model_patcher,)
-            except Exception as e:
-                print(f"Warning: Could not wrap with ComfyUI ModelPatcher: {e}")
-                print("Returning raw model (manual memory management required)")
-                # Fallback: return raw model wrapped in a simple dict
-                return ({"model": model, "model_type": "turbodiffusion"},)
+            # Return raw model - TurboDiffusion uses custom inference, not compatible with ComfyUI sampling
+            # The model must be used with a custom TurboDiffusion inference node
+            return (model,)
 
         except Exception as e:
             print(f"Error loading model: {e}")

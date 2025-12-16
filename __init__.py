@@ -23,12 +23,16 @@ License: Apache 2.0
 from .nodes.turbowan_sampler import TurboWanSampler
 from .nodes.video_saver import TurboDiffusionSaveVideo
 from .nodes.turbowan_model_loader import TurboWanModelLoader
+from .nodes.turbowan_inference import TurboDiffusionI2VSampler
+from .nodes.vae_loader import TurboWanVAELoader
 
 # ComfyUI node registration
 NODE_CLASS_MAPPINGS = {
     "TurboWanSampler": TurboWanSampler,
     "TurboDiffusionSaveVideo": TurboDiffusionSaveVideo,
     "TurboWanModelLoader": TurboWanModelLoader,
+    "TurboDiffusionI2VSampler": TurboDiffusionI2VSampler,
+    "TurboWanVAELoader": TurboWanVAELoader,
 }
 
 # Display names for nodes in ComfyUI interface
@@ -36,6 +40,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "TurboWanSampler": "TurboWan I2V Sampler",
     "TurboDiffusionSaveVideo": "Save Video",
     "TurboWanModelLoader": "TurboWan Model Loader (Quantized)",
+    "TurboDiffusionI2VSampler": "TurboDiffusion I2V Sampler",
+    "TurboWanVAELoader": "TurboWan VAE Loader",
 }
 
 # Web extensions (optional - for custom node UI)
@@ -50,6 +56,8 @@ __all__ = [
     "TurboWanSampler",
     "TurboDiffusionSaveVideo",
     "TurboWanModelLoader",
+    "TurboDiffusionI2VSampler",
+    "TurboWanVAELoader",
 ]
 
 # Print initialization message

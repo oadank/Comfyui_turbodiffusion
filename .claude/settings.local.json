@@ -24,7 +24,16 @@
       "Bash(../python_embeded/python.exe -c \"from turbodiffusion.inference.modify_model import select_model, replace_attention, replace_linear_norm; print(''SUCCESS: All imports work'')\")",
       "Bash(python -c \"import sys; sys.path.insert(0, ''.''); from turbodiffusion_vendor.inference.modify_model import select_model, replace_attention, replace_linear_norm; print(''SUCCESS'')\")",
       "Bash(../python_embeded/python.exe -c \"import sys; sys.path.insert(0, ''custom_nodes/comfyui-turbodiffusion''); from nodes.turbowan_model_loader import TurboWanModelLoader; print(''SUCCESS: TurboWanModelLoader imported'')\")",
-      "Bash(../python_embeded/python.exe -c \"import sys; sys.path.insert(0, ''custom_nodes''); import comfyui_turbodiffusion; print(''SUCCESS'')\")"
+      "Bash(../python_embeded/python.exe -c \"import sys; sys.path.insert(0, ''custom_nodes''); import comfyui_turbodiffusion; print(''SUCCESS'')\")",
+      "Bash(python:*)",
+      "Bash(grep:*)",
+      "Bash(../python_embeded/python.exe -c \"import sys; sys.path.insert(0, ''custom_nodes/comfyui-turbodiffusion''); from nodes.turbowan_inference import TurboDiffusionI2VSampler; print(''SUCCESS'')\")",
+      "Bash(../python_embeded/python.exe:*)",
+      "Bash(if [ -d turbodiffusion_temp ])",
+      "Bash(then cd turbodiffusion_temp)",
+      "Bash(git pull:*)",
+      "Bash(else git clone --depth 1 https://github.com/thu-ml/TurboDiffusion.git turbodiffusion_temp)",
+      "Bash(fi)"
     ]
   }
 }

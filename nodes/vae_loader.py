@@ -2,8 +2,17 @@
 
 from typing import Tuple
 from pathlib import Path
+import torch
 
 from ..utils.model_management import get_checkpoint_dir
+
+# Import Wan2pt1VAEInterface
+try:
+    from ..turbodiffusion_vendor.rcm.tokenizers.wan2pt1 import Wan2pt1VAEInterface
+    TURBODIFFUSION_AVAILABLE = True
+except ImportError as e:
+    TURBODIFFUSION_AVAILABLE = False
+    print(f"ERROR: Could not import Wan2pt1VAEInterface: {e}")
 
 
 class TurboWanVAELoader:
@@ -37,40 +46,59 @@ class TurboWanVAELoader:
         """Get list of available VAE checkpoints."""
         vae_files = []
 
+        # Search in vae folder first
+        try:
+            import folder_paths
+            for search_dir in folder_paths.get_folder_paths("vae"):
+                search_path = Path(search_dir)
+                if search_path.exists():
+                    for pattern in ["*vae*.pth", "*vae*.safetensors", "*VAE*.pth", "*VAE*.safetensors"]:
+                        for vae_file in search_path.glob(pattern):
+                            if vae_file.name not in vae_files:
+                                vae_files.append(vae_file.name)
+        except:
+            pass
+
         # Search in diffusion_models folder
         try:
             import folder_paths
             for search_dir in folder_paths.get_folder_paths("diffusion_models"):
                 search_path = Path(search_dir)
                 if search_path.exists():
-                    for vae_file in search_path.glob("*VAE*.pth"):
-                        vae_files.append(vae_file.name)
+                    for pattern in ["*vae*.pth", "*vae*.safetensors", "*VAE*.pth", "*VAE*.safetensors"]:
+                        for vae_file in search_path.glob(pattern):
+                            if vae_file.name not in vae_files:
+                                vae_files.append(vae_file.name)
         except:
             pass
 
         # Search in local checkpoints
         checkpoint_dir = get_checkpoint_dir()
         if checkpoint_dir.exists():
-            for vae_file in checkpoint_dir.glob("*VAE*.pth"):
-                if vae_file.name not in vae_files:
-                    vae_files.append(vae_file.name)
+            for pattern in ["*vae*.pth", "*vae*.safetensors", "*VAE*.pth", "*VAE*.safetensors"]:
+                for vae_file in checkpoint_dir.glob(pattern):
+                    if vae_file.name not in vae_files:
+                        vae_files.append(vae_file.name)
 
         # Default if none found
         if not vae_files:
-            vae_files = ["Wan2.1_VAE.pth"]
+            vae_files = ["wan_2.1_vae.safetensors"]
 
         return sorted(vae_files)
 
-    def load_vae(self, vae_name: str) -> Tuple[dict]:
+    def load_vae(self, vae_name: str) -> Tuple:
         """
-        Load the VAE checkpoint.
+        Load the VAE checkpoint and return Wan2pt1VAEInterface object.
 
         Args:
             vae_name: Name of VAE checkpoint file
 
         Returns:
-            Tuple containing VAE configuration dictionary
+            Tuple containing Wan2pt1VAEInterface object
         """
+        if not TURBODIFFUSION_AVAILABLE:
+            raise RuntimeError("TurboDiffusion modules not available!")
+
         print(f"\n{'='*60}")
         print(f"Loading TurboWan VAE")
         print(f"{'='*60}")
@@ -79,16 +107,28 @@ class TurboWanVAELoader:
         # Find VAE file
         vae_path = None
 
-        # Search in diffusion_models folder
+        # Search in vae folder first
         try:
             import folder_paths
-            for search_dir in folder_paths.get_folder_paths("diffusion_models"):
+            for search_dir in folder_paths.get_folder_paths("vae"):
                 search_path = Path(search_dir) / vae_name
                 if search_path.exists():
                     vae_path = search_path
                     break
         except:
             pass
+
+        # Search in diffusion_models folder
+        if vae_path is None:
+            try:
+                import folder_paths
+                for search_dir in folder_paths.get_folder_paths("diffusion_models"):
+                    search_path = Path(search_dir) / vae_name
+                    if search_path.exists():
+                        vae_path = search_path
+                        break
+            except:
+                pass
 
         # Search in local checkpoints
         if vae_path is None:
@@ -103,20 +143,23 @@ class TurboWanVAELoader:
                 f"ERROR: VAE not found: {vae_name}\n"
                 f"{'='*60}\n"
                 f"Please download from:\n"
-                f"https://huggingface.co/Wan-AI/Wan2.1-T2V-1.3B\n"
-                f"\nPlace in: ComfyUI/models/diffusion_models/\n"
+                f"https://huggingface.co/thu-ml/TurboWan2.2-I2V-A14B\n"
+                f"\nPlace in: ComfyUI/models/vae/\n"
                 f"{'='*60}\n"
             )
 
-        vae_config = {
-            "vae_path": str(vae_path),
-            "vae_name": vae_name,
-        }
+        print(f"Loading VAE from: {vae_path}")
 
-        print(f"VAE loaded from: {vae_path}")
+        # Create Wan2pt1VAEInterface with the file path
+        # Note: Wan2pt1VAEInterface handles loading internally via easy_io
+        vae = Wan2pt1VAEInterface(vae_pth=str(vae_path))
+
+        print(f"VAE loaded successfully!")
+        print(f"Spatial compression factor: {vae.spatial_compression_factor}")
+        print(f"Temporal compression factor: {vae.temporal_compression_factor}")
         print(f"{'='*60}\n")
 
-        return (vae_config,)
+        return (vae,)
 
     @classmethod
     def IS_CHANGED(cls, **kwargs):

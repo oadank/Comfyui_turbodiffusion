@@ -29,6 +29,7 @@ from imaginaire.utils.easy_io.handlers.torch_handler import TorchHandler
 from imaginaire.utils.easy_io.handlers.torchjit_handler import TorchJitHandler
 from imaginaire.utils.easy_io.handlers.txt_handler import TxtHandler
 from imaginaire.utils.easy_io.handlers.yaml_handler import YamlHandler
+from imaginaire.utils.easy_io.handlers.safetensors_handler import SafeTensorsHandler
 
 file_handlers = {
     "json": JsonHandler(),
@@ -54,6 +55,9 @@ for img_type in ["jpg", "jpeg", "png", "bmp", "gif"]:
     file_handlers[img_type].format = img_type
 for video_type in ["mp4", "avi", "mov", "webm", "flv", "wmv"]:
     file_handlers[video_type] = ImageioVideoHandler()
+
+# Register safetensors handler
+file_handlers["safetensors"] = SafeTensorsHandler()
 
 
 def _register_handler(handler, file_formats):

@@ -1,284 +1,177 @@
-# ComfyUI TurboDiffusion I2V Node
+# ComfyUI TurboDiffusion I2V
 
-ComfyUI-native integration for [TurboDiffusion](https://github.com/thu-ml/TurboDiffusion) Image-to-Video (I2V) generation. This node pack integrates seamlessly with ComfyUI's standard nodes for high-quality, fast video generation.
+ComfyUI custom node for [TurboDiffusion](https://github.com/thu-ml/TurboDiffusion) Image-to-Video generation with dual-expert sampling and SLA attention optimization.
 
 ## Features
 
-- **Fully ComfyUI Native**: Uses standard UNETLoader, CLIPLoader, VAELoader, CLIPTextEncode, KSamplerAdvanced
-- **Dual-Expert Sampling**: High noise model for coarse motion + low noise model for detail refinement
-- **Fast Generation**: 100-205× acceleration using TurboDiffusion framework
-- **High Quality**: Supports 480p and 720p video generation up to 241 frames
-- **Flexible Models**: Works with quantized (fp8) and full precision models
-- **Standard Workflow**: Same pattern as official Wan workflows
+- ✅ **Complete I2V Pipeline**: Single node handles text encoding, VAE encoding, dual-expert sampling, and decoding
+- ✅ **SLA Attention**: 2-3x faster inference with Sparse Linear Attention optimization
+- ✅ **Quantized Models**: Supports int8 block-wise quantized .pth models
+- ✅ **Dual-Expert Sampling**: Automatic switching between high/low noise models
+- ✅ **Memory Management**: Automatic model loading/offloading for efficient VRAM usage
+- ✅ **Vendored Code**: No external TurboDiffusion installation required
 
 ## Requirements
 
-### GPU Requirements
-- **Minimum**: NVIDIA RTX 4090 (24GB VRAM) with fp8 quantized models
-- **Recommended**: NVIDIA RTX 5090, H100, or A100 (40GB+ VRAM)
-- Higher resolutions and more frames require more VRAM
-
-### Software Requirements
-- Python >= 3.9
-- PyTorch >= 2.7.0
-- ComfyUI (latest version)
-- CUDA-capable GPU
+- **GPU**: NVIDIA RTX 3090/4090 or better (12GB+ VRAM)
+- **Software**: Python >= 3.9, PyTorch >= 2.0, ComfyUI
 
 ## Installation
 
-### Quick Install
-
-1. Navigate to your ComfyUI custom_nodes directory:
+1. Navigate to ComfyUI custom_nodes directory:
 ```bash
-cd path/to/ComfyUI/custom_nodes/
+cd ComfyUI/custom_nodes/
 ```
 
 2. Clone this repository:
 ```bash
-git clone https://github.com/your-org/comfyui-turbodiffusion.git
+git clone https://github.com/anveshane/Comfyui_turbodiffusion.git
 ```
 
-3. Restart ComfyUI to load the nodes
+3. Restart ComfyUI
 
-### Download Required Models
+## Required Models
 
-This node pack uses quantized `.pth` models with TurboDiffusion's optimizations.
+Download and place in your ComfyUI models directories:
 
-Place the following files in `ComfyUI/models/diffusion_models/`:
-
-**Diffusion Models**:
-- `TurboWan2.2-I2V-A14B-high-720P-quant.pth` (High noise expert)
-- `TurboWan2.2-I2V-A14B-low-720P-quant.pth` (Low noise expert)
+### 1. Diffusion Models (`ComfyUI/models/diffusion_models/`)
+- `TurboWan2.2-I2V-A14B-high-720P-quant.pth`
+- `TurboWan2.2-I2V-A14B-low-720P-quant.pth`
 
 Download from: https://huggingface.co/thu-ml/TurboWan2.2-I2V-A14B
 
-**Note**: These are int8 block-wise quantized models optimized for TurboDiffusion inference. The custom TurboWanModelLoader handles the quantization automatically.
+### 2. VAE (`ComfyUI/models/vae/`)
+- `wan_2.1_vae.safetensors` (or `.pth`)
 
-## Usage
+### 3. Text Encoder (`ComfyUI/models/clip/` or `text_encoders/`)
+- `nsfw_wan_umt5-xxl_fp8_scaled.safetensors` (or `.pth`)
 
-### Workflow Overview
+## Workflow
 
-The TurboWan workflow follows the standard ComfyUI pattern:
+The workflow uses 8 nodes total:
 
-```
-Step 1: Load Models
-├─ TurboWanModelLoader → High Noise Model (.pth quantized)
-├─ TurboWanModelLoader → Low Noise Model (.pth quantized)
-├─ (Uses built-in text encoder and VAE from model)
+1. **TurboWanModelLoader** → Load high noise model (.pth with SLA attention)
+2. **TurboWanModelLoader** → Load low noise model (.pth with SLA attention)
+3. **CLIPLoader** → Load umT5-xxl text encoder
+4. **CLIPTextEncode** → Create text prompt
+5. **TurboWanVAELoader** → Load Wan2.1 VAE (video VAE with temporal support)
+6. **LoadImage** → Load starting image
+7. **TurboDiffusionI2VSampler** → Complete inference (samples 77 frames in ~60-90s)
+8. **TurboDiffusionSaveVideo** → Save as MP4/GIF/WebM
 
-Step 2: Create Prompts
-├─ CLIPTextEncode → Positive Prompt
-└─ CLIPTextEncode → Negative Prompt
+See `turbowan_workflow.json` for a complete workflow.
 
-Step 3: Prepare I2V
-└─ TurboWan I2V Sampler → Conditioning + Latent
-   ├─ Input: Positive/Negative Conditioning
-   ├─ Input: VAE
-   ├─ Input: Start Image
-   └─ Output: Modified Conditioning + Initial Latent
+## Node Reference
 
-Step 4: Dual-Expert Sampling
-├─ ModelSamplingSD3 → High Noise Config
-├─ KSamplerAdvanced → Stage 1 (High Noise, steps 0-2)
-├─ ModelSamplingSD3 → Low Noise Config
-└─ KSamplerAdvanced → Stage 2 (Low Noise, steps 2-4)
+### TurboWanModelLoader
+Loads quantized .pth TurboDiffusion models with SLA attention optimization.
 
-Step 5: Decode & Save
-├─ VAEDecode → Convert Latent to Images
-├─ PreviewImage → Preview Video Frames
-└─ Save Video → Export as MP4/GIF/WebM
-```
+**Inputs**:
+- `model_name`: Model file from diffusion_models/
+- `attention_type`: "sla" (recommended), "sagesla" (requires SpargeAttn), or "original"
+- `sla_topk`: Top-k ratio for sparse attention (0.1 default)
 
-### Example Workflow
+**Outputs**:
+- `MODEL`: Loaded TurboDiffusion model
 
-See [turbowan_workflow.json](turbowan_workflow.json) for a complete example.
+### TurboWanVAELoader
+Loads Wan2.1 VAE with video encoding/decoding support.
 
-### Node Reference
+**Inputs**:
+- `vae_name`: VAE file from models/vae/ folder
 
-#### TurboWan I2V Sampler
+**Outputs**:
+- `VAE`: Wan2pt1VAEInterface object with temporal support
 
-Prepares conditioning and latents for TurboWan I2V generation.
+**Note**: This is NOT the same as ComfyUI's standard VAELoader. The Wan VAE handles video frames (B, C, T, H, W) with temporal compression, while standard VAEs only handle images (B, C, H, W).
 
-**Inputs:**
-- `positive` (CONDITIONING): From CLIPTextEncode (positive prompt)
-- `negative` (CONDITIONING): From CLIPTextEncode (negative prompt)
-- `vae` (VAE): From VAELoader
-- `width` (INT): Video width in pixels (default: 480)
-- `height` (INT): Video height in pixels (default: 480)
-- `length` (INT): Number of frames (default: 121, range: 9-241)
-- `batch_size` (INT): Batch size (default: 1)
-- `start_image` (IMAGE, optional): Starting image for I2V
-- `clip_vision_output` (CLIP_VISION_OUTPUT, optional): CLIP vision conditioning
+### TurboDiffusionI2VSampler
+Complete I2V inference with dual-expert sampling.
 
-**Outputs:**
-- `positive` (CONDITIONING): Modified positive conditioning for samplers
-- `negative` (CONDITIONING): Modified negative conditioning for samplers
-- `latent` (LATENT): Initial latent for KSamplerAdvanced
+**Inputs**:
+- `high_noise_model`: High noise expert from TurboWanModelLoader
+- `low_noise_model`: Low noise expert from TurboWanModelLoader
+- `conditioning`: Text conditioning from CLIPTextEncode
+- `vae`: VAE from VAELoader
+- `image`: Starting image
+- `num_frames`: Frames to generate (must be 8n+1, e.g., 77, 121)
+- `num_steps`: Sampling steps (1-4, recommended: 4)
+- `resolution`: 480p, 720p, or 1080p
+- `aspect_ratio`: 16:9, 9:16, 4:3, 3:4, 1:1
+- `boundary`: Timestep for model switching (0.9 recommended)
+- `sigma_max`: Initial sigma for rCM (200 recommended)
+- `seed`: Random seed
+- `use_ode`: ODE vs SDE sampling (false = SDE recommended)
 
-**Usage:**
-Connect this node between CLIPTextEncode and KSamplerAdvanced. It prepares video-specific conditioning and creates the initial latent tensor.
+**Outputs**:
+- `frames`: Generated video frames (B*T, H, W, C)
 
-#### Save Video
+**How it works**:
+1. Extracts text embedding from conditioning
+2. Encodes start image with VAE
+3. Creates conditioning dict with mask and encoded latents
+4. Initializes noise with seed
+5. Loads high_noise_model → samples steps 0 to boundary → offloads
+6. Loads low_noise_model → samples steps boundary to num_steps → offloads
+7. Decodes final latents with VAE
+8. Returns frames in ComfyUI IMAGE format
 
-Exports frame sequences as video files.
+### TurboDiffusionSaveVideo
+Saves frame sequence as video file.
 
-**Inputs:**
-- `frames` (IMAGE): Frame sequence from VAEDecode
-- `filename_prefix` (STRING): Output filename prefix
-- `fps` (INT): Frames per second (default: 16)
-- `format` (COMBO): Output format (mp4, gif, webm)
-- `crf` (INT): Compression quality for mp4 (default: 19)
-- `save_output` (BOOLEAN): Whether to save file (default: true)
-
-**Outputs:** None (saves to `ComfyUI/output/`)
-
-### Typical Parameters
-
-**For Dual-Expert Sampling:**
-
-**Stage 1 (High Noise):**
-- Steps: 4
-- Start step: 0
-- End step: 2
-- Add noise: enable
-- Return with noise: enable
-
-**Stage 2 (Low Noise):**
-- Steps: 4
-- Start step: 2
-- End step: 4
-- Add noise: disable
-- Return with noise: disable
-
-**Recommended Settings:**
-- CFG: 1.0
-- Sampler: euler
-- Scheduler: bong_tangent
-- Model sampling shift: 8
-
-## Model Information
-
-### TurboWan2.2-I2V Models
-
-**High Noise Expert:**
-- Handles coarse motion and overall structure
-- Processes early denoising steps
-- File: `wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors`
-
-**Low Noise Expert:**
-- Refines details and textures
-- Processes late denoising steps
-- File: `wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors`
-
-### Model Types
-
-- **fp8_e4m3fn (Quantized)**: 14.5GB per model, works on 24GB GPUs
-- **Full Precision**: 28.6GB per model, requires 40GB+ VRAM
-
-### Supported Resolutions
-
-- 480p (480x480): Lower VRAM usage
-- 720p (720x720): Higher quality, more VRAM
-
-### Frame Lengths
-
-- Minimum: 9 frames
-- Default: 121 frames (~7.5 seconds at 16fps)
-- Maximum: 241 frames (~15 seconds at 16fps)
-
-## Comparison with Official Wan Workflows
-
-This implementation follows the exact same pattern as official Wan workflows:
-
-| Component | Official Wan | TurboWan (This Node) |
-|-----------|-------------|---------------------|
-| Model Loader | UNETLoader | UNETLoader ✓ |
-| Text Encoder | CLIPLoader | CLIPLoader ✓ |
-| VAE | VAELoader | VAELoader ✓ |
-| Prompts | CLIPTextEncode | CLIPTextEncode ✓ |
-| I2V Prep | WanImageToVideo | TurboWanSampler |
-| Sampling | KSamplerAdvanced | KSamplerAdvanced ✓ |
-| Decode | VAEDecode | VAEDecode ✓ |
-
-Only difference: `TurboWanSampler` replaces `WanImageToVideo` for TurboDiffusion-specific conditioning.
-
-## Troubleshooting
-
-### Out of Memory (OOM) Errors
-
-- Use fp8 quantized models instead of full precision
-- Reduce resolution (use 480p instead of 720p)
-- Reduce number of frames
-- Reduce batch size to 1
-
-### Models Not Found
-
-- Verify files are in correct ComfyUI folders:
-  - Diffusion models: `ComfyUI/models/diffusion_models/`
-  - Text encoder: `ComfyUI/models/text_encoders/`
-  - VAE: `ComfyUI/models/vae/`
-- Restart ComfyUI after adding models
-- Check file names match exactly (case-sensitive)
-
-### Slow Generation
-
-- Use fp8 quantized models
-- Ensure CUDA is enabled
-- Check GPU utilization (should be near 100%)
-- Reduce number of frames
-
-### Poor Quality Output
-
-- Use dual-expert sampling (high + low noise)
-- Increase CFG (try 1.0-2.0)
-- Use better prompts (be specific about motion)
-- Try different schedulers
-
-## Examples
-
-### Basic I2V Generation
-
-```
-Positive Prompt: "smooth camera pan to the right, cinematic, high quality"
-Negative Prompt: "static, blurry, low quality, distorted"
-Resolution: 480x480
-Frames: 121
-Steps: 4 (dual-expert: 0-2 high, 2-4 low)
-```
-
-### High Quality Generation
-
-```
-Positive Prompt: "slow motion camera zoom in, professional cinematography, sharp details"
-Negative Prompt: "static, motion blur, compression artifacts, low resolution"
-Resolution: 720x720
-Frames: 121
-Steps: 4 (dual-expert)
-CFG: 1.0
-```
+**Inputs**:
+- `frames`: Video frames from sampler
+- `filename_prefix`: Output filename prefix
+- `fps`: Frames per second (24 default)
+- `format`: "mp4", "gif", or "webm"
+- `quality`: Compression quality (8 default)
+- `loop`: Whether to loop (for GIF)
 
 ## Performance
 
-- **Single frame time**: ~0.1-0.3 seconds (fp8 on RTX 4090)
-- **121 frames**: ~15-30 seconds total
-- **Speedup vs original**: 100-205× faster than standard diffusion
+With SLA attention on RTX 3090:
+- 720p, 77 frames, 4 steps: ~60-90 seconds
+- 2-3x faster than original attention
+- ~12-15GB VRAM usage with automatic offloading
 
-## License
+## Technical Details
 
-Apache 2.0
+### Architecture
+- **Models**: TurboDiffusion Wan2.2-A14B (i2v, 14B parameters)
+- **Quantization**: Block-wise int8 with automatic dequantization
+- **Attention**: SLA (Sparse Linear Attention) for 2-3x speedup
+- **Sampling**: rCM (Rectified Consistency Model) with dual-expert switching
+- **VAE**: Wan2.1 VAE (16 channel latents)
+- **Text Encoder**: umT5-xxl
+
+### Dual-Expert Sampling
+1. **High Noise Model** (steps 0 → boundary): Generates coarse motion and structure
+2. **Low Noise Model** (steps boundary → num_steps): Refines details and quality
+3. **Boundary** (default 0.9): Switches at 90% of sampling (e.g., step 3.6 out of 4)
+
+### Memory Management
+- Models start on CPU
+- Only one model on GPU at a time
+- Automatic offloading after sampling stage
+- VAE/text encoder loaded/unloaded as needed
+
+## Troubleshooting
+
+**"ModuleNotFoundError"**: Restart ComfyUI after installation
+
+**"Model not found"**: Verify model files are in correct ComfyUI directories
+
+**CUDA OOM**: Reduce resolution or frame count
+
+**Slow performance**: Check that `attention_type` is "sla" (not "original")
+
+**"TurboDiffusionI2VSampler" missing**: Ensure all vendored files were copied (turbodiffusion_vendor/)
 
 ## Credits
 
-- [TurboDiffusion](https://github.com/thu-ml/TurboDiffusion) by THU Machine Learning Group
-- [Wan2.2 Models](https://huggingface.co/Wan-AI) by Wan-AI Team
-- ComfyUI by comfyanonymous
+- [TurboDiffusion](https://github.com/thu-ml/TurboDiffusion) by THU-ML
+- [ComfyUI](https://github.com/comfyanonymous/ComfyUI) by comfyanonymous
 
-## Contributing
+## License
 
-Issues and pull requests welcome at https://github.com/your-org/comfyui-turbodiffusion
-
-## References
-
-- TurboDiffusion Paper: https://arxiv.org/abs/2412.13631
-- Wan2.2 Release: https://huggingface.co/Wan-AI
-- ComfyUI: https://github.com/comfyanonymous/ComfyUI
+Apache 2.0 (same as TurboDiffusion)
