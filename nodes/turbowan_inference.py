@@ -155,7 +155,8 @@ class TurboDiffusionI2VSampler:
                         break
 
         print(f"Text embedding shape: {text_emb.shape}")
-        text_emb = text_emb.to(device=device, dtype=dtype)
+        # Keep text_emb on CPU for now to save VRAM
+        text_emb_cpu = text_emb.cpu() if text_emb.device.type == "cuda" else text_emb
 
         # 2. Get VAE encoder (it's a Wan2pt1VAEInterface)
         print("Preparing VAE...")
@@ -193,6 +194,15 @@ class TurboDiffusionI2VSampler:
 
         # 4. Encode image with VAE
         print("Encoding image with VAE...")
+
+        # Aggressive cleanup before VAE encoding
+        print("Unloading all models from GPU...")
+        comfy.model_management.unload_all_models()
+        comfy.model_management.soft_empty_cache()
+        torch.cuda.empty_cache()
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+
         # Move VAE to GPU for encoding
         print("Loading VAE to GPU...")
         tokenizer.model.model.to(device)
@@ -236,6 +246,10 @@ class TurboDiffusionI2VSampler:
         del msk
         del encoded_latents
         torch.cuda.empty_cache()
+
+        # Move text embedding to GPU now
+        text_emb = text_emb_cpu.to(device=device, dtype=dtype)
+        del text_emb_cpu
 
         condition = {
             "crossattn_emb": text_emb,
