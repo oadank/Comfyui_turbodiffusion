@@ -1,0 +1,58 @@
+[project]
+name = "comfyui-turbodiffusion"
+version = "0.1.0"
+description = "ComfyUI custom node for TurboDiffusion I2V (Image-to-Video) generation"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Apache-2.0" }
+authors = [
+    { name = "Ganaraj", email = "user@example.com" }
+]
+keywords = ["comfyui", "turbodiffusion", "image-to-video", "video-generation", "diffusion"]
+
+dependencies = [
+    "torch>=2.7.0",
+    "turbodiffusion>=0.1.0",
+    "huggingface-hub>=0.20.0",
+    "Pillow>=10.0.0",
+    "numpy>=1.24.0",
+    "tqdm>=4.65.0",
+    "safetensors>=0.4.0",
+]
+
+[project.optional-dependencies]
+sagesla = [
+    "spargeattn @ git+https://github.com/thu-ml/SpargeAttn.git",
+]
+video = [
+    "opencv-python>=4.8.0",
+    "imageio>=2.31.0",
+    "imageio-ffmpeg>=0.4.9",
+]
+dev = [
+    "pytest>=7.4.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=7.4.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+]
+
+[tool.uv.pip]
+no-build-isolation-package = ["turbodiffusion"]
+
+[tool.black]
+line-length = 100
+target-version = ["py39"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
