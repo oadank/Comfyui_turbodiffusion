@@ -186,12 +186,21 @@ class TurboDiffusionI2VSampler:
 
         # 4. Encode image with VAE
         print("Encoding image with VAE...")
+        # Move VAE to GPU for encoding
+        print("Loading VAE to GPU...")
+        tokenizer.model.to(device)
+
         with torch.no_grad():
             frames_to_encode = torch.cat([
                 image_tensor.unsqueeze(2),
                 torch.zeros(1, 3, num_frames - 1, h, w, device=device)
             ], dim=2)  # B, C, T, H, W
             encoded_latents = tokenizer.encode(frames_to_encode)
+
+        # Offload VAE from GPU
+        print("Offloading VAE from GPU...")
+        tokenizer.model.to("cpu")
+        torch.cuda.empty_cache()
 
         # 5. Prepare conditioning
         print("Preparing conditioning...")
@@ -281,8 +290,17 @@ class TurboDiffusionI2VSampler:
 
         # 8. Decode latents with VAE
         print("Decoding latents with VAE...")
+        # Move VAE to GPU for decoding
+        print("Loading VAE to GPU...")
+        tokenizer.model.to(device)
+
         with torch.no_grad():
             decoded_frames = tokenizer.decode(x)  # B, C, T, H, W
+
+        # Offload VAE from GPU
+        print("Offloading VAE from GPU...")
+        tokenizer.model.to("cpu")
+        torch.cuda.empty_cache()
 
         # 9. Convert to ComfyUI IMAGE format (B*T, H, W, C)
         # decoded_frames: (B, C, T, H, W) -> (B, T, C, H, W) -> (B*T, H, W, C)
