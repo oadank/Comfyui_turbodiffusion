@@ -241,6 +241,10 @@ def rmsnorm(x, w, eps):
         (w, rstd, num_warps) (tuple): RMSNorm weight tensor, rstd tensor, and number of warps.
     """
     assert x.is_contiguous(), "Input must be contiguous"
+    # ComfyUI native offload may keep small buffers on CPU while activations are on CUDA.
+    # Triton kernels require all pointer arguments to be accessible from the same device.
+    if isinstance(w, torch.Tensor) and w.device != x.device:
+        w = w.to(device=x.device)
     # Change batched 3D input to 2D
     [x], batched, BS = flatten_if_batched(x)
 
@@ -336,6 +340,12 @@ def _layer_norm_param_fwd_fused(
 def layernorm_param(x, w, b, eps):
     # Change batched 3D input to 2D
     [x], batched, BS = flatten_if_batched(x)
+    # ComfyUI native offload may keep small buffers on CPU while activations are on CUDA.
+    # Triton kernels require all pointer arguments to be accessible from the same device.
+    if isinstance(w, torch.Tensor) and w.device != x.device:
+        w = w.to(device=x.device)
+    if isinstance(b, torch.Tensor) and b.device != x.device:
+        b = b.to(device=x.device)
 
     # allocate output
     M, N = x.shape
@@ -499,7 +509,12 @@ class Int8Linear(nn.Module):
     def forward(self, x):
         out = int8_linear(x, self.int8_weight, self.scale)
         if self.bias is not None:
-            out = out + self.bias
+            # In ComfyUI native offload mode, buffers may be on CPU while activations are on CUDA.
+            # Add bias on the activation device without permanently moving the buffer.
+            bias = self.bias
+            if bias.device != out.device or bias.dtype != out.dtype:
+                bias = bias.to(device=out.device, dtype=out.dtype)
+            out = out + bias
         return out
 
     @classmethod

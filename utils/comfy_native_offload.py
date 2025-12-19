@@ -116,6 +116,37 @@ class ComfyNativeOffloadCallable:
 
     def __call__(self, *args, **kwargs):
         self._ensure_loaded()
+        # Align floating-point inputs with the model's parameter dtype to avoid
+        # Linear matmul dtype mismatches (e.g., fp32 inputs vs bf16 weights).
+        target_dtype = None
+        model_for_dtype = getattr(self.patcher, "model", None)
+        if isinstance(model_for_dtype, torch.nn.Module):
+            try:
+                p = next(model_for_dtype.parameters(), None)
+                target_dtype = p.dtype if p is not None else None
+            except Exception:
+                target_dtype = None
+
+        def convert(obj):
+            if isinstance(obj, torch.Tensor):
+                if target_dtype is not None and obj.is_floating_point() and obj.dtype != target_dtype:
+                    return obj.to(dtype=target_dtype)
+                return obj
+            if isinstance(obj, list):
+                return [convert(x) for x in obj]
+            if isinstance(obj, tuple):
+                if type(obj) is tuple:
+                    return tuple(convert(x) for x in obj)
+                if hasattr(obj, "_fields"):
+                    return type(obj)(*(convert(x) for x in obj))
+                return obj
+            if isinstance(obj, dict):
+                return {k: convert(v) for k, v in obj.items()}
+            return obj
+
+        args = convert(args)
+        kwargs = convert(kwargs)
+
         # ModelPatcher generally exposes the underlying module at `.model`.
         model = getattr(self.patcher, "model", None)
         if callable(model):

@@ -466,7 +466,10 @@ class WanAttentionBlock(nn.Module):
         # `e` may come in as bf16 when running quantized checkpoints / layerwise GPU offload.
         # We do the modulation math in fp32 for stability rather than asserting fp32 inputs.
         e = e.float()
-        e = (self.modulation.float() + e).chunk(6, dim=1)
+        # In ComfyUI native offload mode, parameters can be on CPU while activations are on CUDA.
+        # Keep modulation math on the activation device without permanently moving parameters.
+        modulation = self.modulation.to(device=e.device, dtype=torch.float32)
+        e = (modulation + e).chunk(6, dim=1)
 
         # self-attention
         y = self.self_attn((self.norm1(x).float() * (1 + e[1]) + e[0]).type_as(x), seq_lens, video_size, freqs)
@@ -517,7 +520,8 @@ class Head(nn.Module):
         """
         # `e` may be bf16 in low-VRAM modes; do the modulation math in fp32.
         e = e.float()
-        e = (self.modulation.float() + e.unsqueeze(1)).chunk(2, dim=1)
+        modulation = self.modulation.to(device=e.device, dtype=torch.float32)
+        e = (modulation + e.unsqueeze(1)).chunk(2, dim=1)
         h = self.norm(x) * (1 + e[1]) + e[0]
         # Match linear weight dtype (bf16 in quant/offload modes) to avoid matmul dtype errors.
         h = h.to(dtype=self.head.weight.dtype)

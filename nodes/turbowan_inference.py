@@ -7,7 +7,7 @@ This node handles the full dual-expert sampling process internally.
 
 import torch
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageOps
 from einops import repeat, rearrange
 import torchvision.transforms.v2 as T
 from typing import Tuple
@@ -208,12 +208,22 @@ class TurboDiffusionI2VSampler:
             logger.log(f"   Consider: resolution='480' (not '480p'), or fewer frames (e.g., 49 instead of {num_frames})")
 
         # Transform image
-        image_transforms = T.Compose([
-            T.ToImage(),
-            T.Resize(size=(h, w), antialias=True),
-            T.ToDtype(torch.float32, scale=True),
-            T.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
-        ])
+        # IMPORTANT: Avoid stretching the input image to the target aspect ratio.
+        # Stretching causes subtle blur/distortion and also makes the "first frame" look wrong.
+        # Instead, do a center-crop resize (PIL ImageOps.fit) to match the requested WxH.
+        try:
+            resample = Image.Resampling.LANCZOS
+        except AttributeError:  # Pillow<9
+            resample = Image.LANCZOS
+        input_image = ImageOps.fit(input_image, (w, h), method=resample, centering=(0.5, 0.5))
+
+        image_transforms = T.Compose(
+            [
+                T.ToImage(),
+                T.ToDtype(torch.float32, scale=True),
+                T.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
+            ]
+        )
         image_tensor = image_transforms(input_image).unsqueeze(0).to(device=device, dtype=torch.float32)
 
         # 4. Encode image with VAE
@@ -431,8 +441,12 @@ class TurboDiffusionI2VSampler:
 
         # 9. Convert to ComfyUI IMAGE format (B*T, H, W, C)
         # decoded_frames: (B, C, T, H, W) -> (B, T, C, H, W) -> (B*T, H, W, C)
-        decoded_frames = decoded_frames.permute(0, 2, 3, 4, 1)  # B, T, H, W, C
-        decoded_frames = decoded_frames.reshape(-1, h, w, 3)  # B*T, H, W, C
+        decoded_frames = decoded_frames.permute(0, 2, 3, 4, 1).contiguous()  # B, T, H, W, C
+        # Use the decoded tensor's actual H/W to avoid accidental H/W swaps or memory reinterpretation.
+        out_h = decoded_frames.shape[2]
+        out_w = decoded_frames.shape[3]
+        out_c = decoded_frames.shape[4]
+        decoded_frames = decoded_frames.reshape(-1, out_h, out_w, out_c)  # B*T, H, W, C
 
         # Denormalize from [-1, 1] to [0, 1]
         decoded_frames = (decoded_frames + 1.0) / 2.0

@@ -1,6 +1,6 @@
 {
   "last_node_id": 8,
-  "last_link_id": 8,
+  "last_link_id": 7,
   "nodes": [
     {
       "id": 1,
@@ -98,23 +98,23 @@
         {"name": "vae", "type": "VAE", "link": 5},
         {"name": "image", "type": "IMAGE", "link": 6}
       ],
-      "outputs": [{"name": "frames", "type": "IMAGE", "links": [7, 8]}],
+      "outputs": [{"name": "frames", "type": "IMAGE", "links": [7]}],
       "properties": {"Node name for S&R": "TurboDiffusionI2VSampler"},
       "widgets_values": [33, 4, "480", "1:1", 0.9, 200.0, 42, false],
       "title": "TurboDiffusion I2V Sampler"
     },
     {
       "id": 8,
-      "type": "TurboDiffusionSaveVideo",
+      "type": "PreviewImage",
       "pos": [1420, 50],
-      "size": [400, 220],
+      "size": [400, 260],
       "flags": {},
       "order": 7,
       "mode": 0,
-      "inputs": [{"name": "frames", "type": "IMAGE", "link": 7}],
-      "properties": {"Node name for S&R": "TurboDiffusionSaveVideo"},
-      "widgets_values": ["turbodiffusion", 24, "mp4", 8, true],
-      "title": "Save Video"
+      "inputs": [{"name": "images", "type": "IMAGE", "link": 7}],
+      "properties": {"Node name for S&R": "PreviewImage"},
+      "widgets_values": [],
+      "title": "Preview Frames"
     }
   ],
   "links": [

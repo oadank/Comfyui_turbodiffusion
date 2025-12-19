@@ -587,7 +587,8 @@ class WanAttentionBlock(JVP):
         # `e` may come in as bf16 when running quantized checkpoints / layerwise GPU offload.
         # We do the modulation math in fp32 for stability rather than asserting fp32 inputs.
         e = e.float()
-        e = (self.modulation.float() + e).chunk(6, dim=1)
+        modulation = self.modulation.to(device=e.device, dtype=torch.float32)
+        e = (modulation + e).chunk(6, dim=1)
 
         # self-attention
         y = self.self_attn((self.norm1(x).float() * (1 + e[1]) + e[0]).type_as(x), seq_lens, video_size, freqs)
@@ -621,7 +622,8 @@ class WanAttentionBlock(JVP):
         e = e.float()
 
         def pre_self_attn_fn(x, e):
-            e = (self.modulation + e).chunk(6, dim=1)
+            modulation = self.modulation.to(device=e.device, dtype=torch.float32)
+            e = (modulation + e).chunk(6, dim=1)
             z = (self.norm1(x).float() * (1 + e[1]) + e[0]).type_as(x)
             return z, e
 
@@ -691,7 +693,8 @@ class Head(JVP):
         """
         # `e` may be bf16 in low-VRAM modes; do the modulation math in fp32.
         e = e.float()
-        e = (self.modulation.float() + e.unsqueeze(1)).chunk(2, dim=1)
+        modulation = self.modulation.to(device=e.device, dtype=torch.float32)
+        e = (modulation + e.unsqueeze(1)).chunk(2, dim=1)
         h = self.norm(x) * (1 + e[1]) + e[0]
         # Match linear weight dtype (bf16 in quant/offload modes) to avoid matmul dtype errors.
         h = h.to(dtype=self.head.weight.dtype)
@@ -711,7 +714,8 @@ class Head(JVP):
         e = e.float()
 
         def fn(x, e):
-            e = (self.modulation + e.unsqueeze(1)).chunk(2, dim=1)
+            modulation = self.modulation.to(device=e.device, dtype=torch.float32)
+            e = (modulation + e.unsqueeze(1)).chunk(2, dim=1)
             h = self.norm(x) * (1 + e[1]) + e[0]
             h = h.to(dtype=self.head.weight.dtype)
             x = self.head(h)
