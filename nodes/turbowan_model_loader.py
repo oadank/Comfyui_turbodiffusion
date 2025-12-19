@@ -11,6 +11,7 @@ import folder_paths
 import comfy.sd
 import comfy.model_management
 import comfy.model_patcher
+from pathlib import Path
 
 # Import from vendored TurboDiffusion code (no external dependency needed!)
 try:
@@ -28,6 +29,10 @@ except ImportError as e:
     print("\nThis should not happen as TurboDiffusion code is vendored in the package.")
     print("Please report this issue at: https://github.com/anveshane/Comfyui_turbodiffusion/issues")
     print("="*60 + "\n")
+
+# Import lazy loader
+from ..utils.lazy_loader import LazyModelLoader
+from ..utils.timing import TimedLogger
 
 
 class TurboWanModelLoader:
@@ -69,12 +74,10 @@ class TurboWanModelLoader:
 
     def load_model(self, model_name, attention_type="sla", sla_topk=0.1):
         """
-        Load a TurboDiffusion quantized model using official create_model().
+        Create a lazy loader for TurboDiffusion quantized model.
 
-        This uses TurboDiffusion's official loading code which handles:
-        - Automatic quantization detection and loading
-        - SageSLA/SLA attention optimization
-        - Proper model architecture setup
+        This returns a lazy loader that defers actual model loading until first use.
+        This eliminates upfront loading time in ComfyUI workflows.
 
         Args:
             model_name: Model filename from diffusion_models/
@@ -82,7 +85,7 @@ class TurboWanModelLoader:
             sla_topk: Top-k ratio for sparse attention
 
         Returns:
-            Tuple containing the loaded model (ComfyUI MODEL format)
+            Tuple containing lazy model loader
         """
         if not TURBODIFFUSION_AVAILABLE:
             raise RuntimeError(
@@ -92,14 +95,16 @@ class TurboWanModelLoader:
                 "https://github.com/anveshane/Comfyui_turbodiffusion/issues\n"
             )
 
-        model_path = folder_paths.get_full_path_or_raise("diffusion_models", model_name)
+        model_path = Path(folder_paths.get_full_path_or_raise("diffusion_models", model_name))
 
-        print(f"\n{'='*60}")
-        print(f"Loading TurboDiffusion Model (Official)")
-        print(f"{'='*60}")
-        print(f"Model: {model_name}")
-        print(f"Path: {model_path}")
-        print(f"Attention: {attention_type}, Top-k: {sla_topk}")
+        # Use timed logger for all output
+        logger = TimedLogger("ModelLoader")
+        logger.section(f"Preparing Lazy Model Loader")
+        logger.log(f"Model: {model_name}")
+        logger.log(f"Path: {model_path}")
+        logger.log(f"Attention: {attention_type}, Top-k: {sla_topk}")
+        logger.log(f"✓ Lazy loader created (model will load on first use)")
+        print(f"{'='*60}\n")
 
         # Create args namespace for TurboDiffusion's create_model()
         class Args:
@@ -112,61 +117,97 @@ class TurboWanModelLoader:
 
         args = Args()
 
+        # Create lazy loader with the actual loading logic
+        lazy_loader = LazyModelLoader(
+            model_path=model_path,
+            model_name=model_name,
+            load_fn=self._load_model_impl,
+            load_args=None  # Will be set below
+        )
+
+        # Set load_args with reference to lazy_loader
+        lazy_loader.load_args = (args, logger, lazy_loader)
+
+        return (lazy_loader,)
+
+    @staticmethod
+    def _load_model_impl(model_path: Path, load_args, target_device=None):
+        """
+        Internal method that performs the actual model loading.
+
+        This is called by LazyModelLoader when the model is first accessed.
+
+        Args:
+            model_path: Path to model checkpoint
+            load_args: Tuple of (args, logger, lazy_loader)
+            target_device: Optional target device to load directly to (avoids CPU→GPU transfer)
+
+        Returns:
+            Loaded model
+        """
+        args, logger, lazy_loader = load_args
+
+        # Check if lazy loader has a target device set (from .to(device) call)
+        if target_device is None and hasattr(lazy_loader, '_target_device'):
+            target_device = lazy_loader._target_device
+
         try:
-            # Load using TurboDiffusion's official create_model()
-            # This handles quantization automatically
-            print("Loading with official create_model()...")
+            logger.log("Loading with official create_model()...")
 
             # Create model with meta device first (no memory allocation)
             with torch.device("meta"):
                 model_arch = select_model(args.model)
 
             # Apply attention modifications BEFORE loading state dict
-            # This ensures the model architecture has the expected SLA layers
             if args.attention_type in ['sla', 'sagesla']:
-                print(f"Applying {args.attention_type} attention with topk={args.sla_topk}...")
+                logger.log(f"Applying {args.attention_type} attention with topk={args.sla_topk}...")
                 model_arch = replace_attention(model_arch, attention_type=args.attention_type, sla_topk=args.sla_topk)
 
-            # Load state dict
-            print("Loading state dict...")
-            state_dict = torch.load(model_path, map_location="cpu", weights_only=False)
+            # Always load state dict to CPU first (minimal memory usage)
+            # We'll handle GPU transfer after loading weights
+            logger.log(f"Loading state dict to CPU...")
+            state_dict = torch.load(str(model_path), map_location="cpu", weights_only=False)
 
             # Clean checkpoint wrapper keys if present
-            # PyTorch's gradient checkpointing adds "_checkpoint_wrapped_module." prefix
             cleaned_state_dict = {}
             for key, value in state_dict.items():
                 clean_key = key.replace("_checkpoint_wrapped_module.", "")
                 cleaned_state_dict[clean_key] = value
             state_dict = cleaned_state_dict
-            print(f"Cleaned {len(state_dict)} state dict keys")
+            logger.log(f"Cleaned {len(state_dict)} state dict keys")
 
             # Apply quantization-aware layer replacements
-            print(f"Applying quantization-aware replacements (quant_linear={args.quant_linear}, fast_norm={not args.default_norm})...")
+            logger.log(f"Applying quantization-aware replacements (quant_linear={args.quant_linear}, fast_norm={not args.default_norm})...")
             replace_linear_norm(model_arch, replace_linear=args.quant_linear, replace_norm=not args.default_norm, quantize=False)
 
             # Load weights
-            print("Loading weights into model...")
+            logger.log("Loading weights into model...")
             model_arch.load_state_dict(state_dict, assign=True)
 
-            # Move to CPU and set to eval mode
+            # Keep model on CPU initially - inference code will handle GPU transfer
+            # This avoids OOM during loading since model stays on CPU
             model = model_arch.cpu().eval()
+            logger.log("Model loaded to CPU")
 
             del state_dict
             torch.cuda.empty_cache()
 
-            print(f"Successfully loaded model with official TurboDiffusion code")
-            print(f"Model type: {args.model}")
-            print(f"Attention: {attention_type}")
-            print(f"Quantized: {args.quant_linear}")
-            print(f"{'='*60}\n")
+            # Wrap model with CPU offloading if target device is CUDA
+            # This allows the model to run even if it doesn't fit entirely in VRAM
+            if target_device is not None and str(target_device).startswith('cuda'):
+                from ..utils.cpu_offload_wrapper import CPUOffloadWrapper
+                model = CPUOffloadWrapper(model, target_device)
+                logger.log("Model wrapped with CPU offloading for memory efficiency")
 
-            # Return raw model - TurboDiffusion uses custom inference, not compatible with ComfyUI sampling
-            # The model must be used with a custom TurboDiffusion inference node
-            return (model,)
+            logger.log(f"✓ Successfully loaded model")
+            logger.log(f"Model type: {args.model}")
+            logger.log(f"Attention: {args.attention_type}")
+            logger.log(f"Quantized: {args.quant_linear}")
+
+            return model
 
         except Exception as e:
-            print(f"Error loading model: {e}")
-            print(f"{'='*60}\n")
+            logger.log(f"❌ Error loading model: {e}")
             raise RuntimeError(
                 f"Failed to load TurboDiffusion model.\n"
                 f"Error: {str(e)}\n\n"
