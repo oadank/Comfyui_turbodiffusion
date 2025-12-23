@@ -129,8 +129,8 @@ class TurboDiffusionI2VSampler:
         sigma_max,
         seed,
         use_ode,
-        width=None,
-        height=None
+        width,
+        height
     ) -> Tuple[torch.Tensor]:
         """
         Run complete TurboDiffusion I2V inference.
