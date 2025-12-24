@@ -38,7 +38,7 @@ Download and place in your ComfyUI models directories:
 - `TurboWan2.2-I2V-A14B-high-720P-quant.pth`
 - `TurboWan2.2-I2V-A14B-low-720P-quant.pth`
 
-Download from: https://huggingface.co/thu-ml/TurboWan2.2-I2V-A14B
+Download from: [TurboDiffusion Model](https://huggingface.co/TurboDiffusion/TurboWan2.2-I2V-A14B-720P)
 
 ### 2. VAE (`ComfyUI/models/vae/`)
 - `wan_2.1_vae.safetensors` (or `.pth`)
